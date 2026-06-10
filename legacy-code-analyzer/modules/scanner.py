@@ -11,6 +11,8 @@
 - collections: 统计计数器
 """
 
+import ast
+import hashlib
 import logging
 import os
 import re
@@ -18,6 +20,7 @@ import json
 from pathlib import Path
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set, Tuple
 
 from .shared import Language, LANGUAGE_SIGNATURES, EXCLUDE_DIRS
@@ -33,6 +36,9 @@ class FileMetadata:
     blank_lines: int = 0
     functions: int = 0
     classes: int = 0
+    assignments: int = 0
+    coroutines: int = 0
+    decorators: int = 0
 
 
 @dataclass
@@ -61,6 +67,18 @@ class ProjectMetadata:
     git_info: Optional[Dict] = None
 
 
+@dataclass
+class GitHistoryResult:
+    total_commits_analyzed: int
+    hot_files: list  # (file, count) tuples
+    fix_commits: list  # commit info dicts
+    recent_commits: list  # commit info dicts
+    author_stats: list  # (author, commit_count, lines_changed) - NEW
+    weekly_activity: list  # (week_start, commit_count) - NEW
+    code_churn: list  # (file, added, deleted) - NEW
+    branch_info: str  # current branch name - NEW
+
+
 class CodeScanner:
     """
     代码扫描器 - 模块 1 核心类
@@ -78,6 +96,7 @@ class CodeScanner:
         self.file_metadata: List[FileMetadata] = []
         self.modules: List[ModuleInfo] = []
         self.tech_stack: Dict[str, str] = {}
+        self._cache: Dict[str, Tuple[float, int]] = {}
 
     def discover_files(self, patterns: Optional[List[str]] = None) -> List[Path]:
         """
@@ -138,6 +157,9 @@ class CodeScanner:
         - 总行数、有效代码行、注释行、空行
         - 函数/方法定义数量
         - 类/接口定义数量
+        - 顶层赋值和常量
+        - 协程 (async def)
+        - 装饰器数量
 
         参数：
             file_path: 文件路径
@@ -188,15 +210,56 @@ class CodeScanner:
 
             metadata.code_lines += 1
 
-        # 函数/方法计数
+        # 函数/类计数：Python 使用 AST，其他语言使用正则
         if language == Language.PYTHON:
-            metadata.functions = len(re.findall(r"^\s*def\s+\w+\s*\(", content, re.MULTILINE))
-            metadata.classes = len(re.findall(r"^\s*class\s+\w+", content, re.MULTILINE))
+            try:
+                tree = ast.parse(content)
+                func_count = 0
+                class_count = 0
+                assign_count = 0
+                coroutine_count = 0
+                decorator_count = 0
+
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        func_count += 1
+                        if isinstance(node, ast.AsyncFunctionDef):
+                            coroutine_count += 1
+                        decorator_count += len(node.decorator_list)
+                    elif isinstance(node, ast.ClassDef):
+                        class_count += 1
+                        decorator_count += len(node.decorator_list)
+                    elif isinstance(node, ast.Assign):
+                        # 只统计顶层赋值
+                        if hasattr(node, 'col_offset') and all(
+                            isinstance(t, (ast.Name, ast.Attribute, ast.Subscript, ast.Tuple, ast.List))
+                            for t in node.targets
+                        ):
+                            assign_count += 1
+                    elif isinstance(node, ast.AnnAssign):
+                        assign_count += 1
+
+                metadata.functions = func_count
+                metadata.classes = class_count
+                metadata.assignments = assign_count
+                metadata.coroutines = coroutine_count
+                metadata.decorators = decorator_count
+            except SyntaxError:
+                # AST 解析失败时回退到正则
+                logging.getLogger(__name__).debug(f"AST parse failed for {file_path}, falling back to regex")
+                metadata.functions = len(re.findall(r"^\s*def\s+\w+\s*\(", content, re.MULTILINE))
+                metadata.classes = len(re.findall(r"^\s*class\s+\w+", content, re.MULTILINE))
         elif language == Language.JAVA:
-            metadata.functions = len(re.findall(r"(public|private|protected)\s+\w+\s+\w+\s*\(", content))
+            metadata.functions = len(re.findall(
+                r"(?:(?:public|private|protected)\s+\w+\s+\w+\s*\()|(?:@\w+\s*\n\s*(?:public|private|protected)\s+\w+\s+\w+\s*\()",
+                content
+            ))
             metadata.classes = len(re.findall(r"(public\s+)?class\s+\w+", content))
         elif language in (Language.JAVASCRIPT, Language.TYPESCRIPT):
-            metadata.functions = len(re.findall(r"function\s+\w+\s*\(|=>\s*\{", content))
+            metadata.functions = len(re.findall(
+                r"(?:function\s+\w+\s*\()|(?:=>\s*\{)|(?:\w+\s*:\s*function\s*\()",
+                content
+            ))
             metadata.classes = len(re.findall(r"class\s+\w+", content))
         elif language in (Language.CPP, Language.C):
             metadata.functions = len(re.findall(r"\w+\s+\w+::\w+\s*\(|\w+\s+\w+\s*\([^)]*\)\s*\{", content))
@@ -376,7 +439,6 @@ class CodeScanner:
     def _analyze_module_dependencies(self, modules: List[ModuleInfo]):
         """分析模块间的 import 依赖关系"""
         import_patterns = {
-            Language.PYTHON: re.compile(r"^(?:from|import)\s+([\w.]+)", re.MULTILINE),
             Language.JAVA: re.compile(r"^import\s+([\w.]+)", re.MULTILINE),
             Language.JAVASCRIPT: re.compile(r"(?:import\s+.*?from\s+['\"]([^'\"]+)['\"]|require\(['\"]([^'\"]+)['\"]\))", re.MULTILINE),
             Language.TYPESCRIPT: re.compile(r"import\s+.*?from\s+['\"]([^'\"]+)['\"]", re.MULTILINE),
@@ -396,15 +458,44 @@ class CodeScanner:
                     logging.getLogger(__name__).warning(f"Failed to read {full_path} for module dependency analysis")
                     continue
                 lang = self.identify_language(full_path)
-                pattern = import_patterns.get(lang)
-                if pattern:
-                    for match in pattern.finditer(content):
-                        imported = match.group(1) or match.group(2)
-                        if imported:
-                            # 提取模块名（取第一段）
-                            top_module = imported.split(".")[0].split("/")[0]
-                            if top_module in module_names and top_module != module.name:
-                                module.dependencies.add(top_module)
+
+                # Python 文件使用 AST 解析 import
+                if lang == Language.PYTHON:
+                    try:
+                        tree = ast.parse(content)
+                        for node in ast.walk(tree):
+                            if isinstance(node, ast.Import):
+                                for alias in node.names:
+                                    top_module = alias.name.split(".")[0]
+                                    if top_module in module_names and top_module != module.name:
+                                        module.dependencies.add(top_module)
+                            elif isinstance(node, ast.ImportFrom):
+                                if node.module:
+                                    # 处理相对导入
+                                    if node.level > 0:
+                                        continue  # 相对导入不跨模块分析
+                                    top_module = node.module.split(".")[0]
+                                    if top_module in module_names and top_module != module.name:
+                                        module.dependencies.add(top_module)
+                    except SyntaxError:
+                        # AST 解析失败，回退到正则
+                        pattern = re.compile(r"^(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.MULTILINE)
+                        for match in pattern.finditer(content):
+                            imported = match.group(1) or match.group(2)
+                            if imported:
+                                top_module = imported.split(".")[0]
+                                if top_module in module_names and top_module != module.name:
+                                    module.dependencies.add(top_module)
+                else:
+                    pattern = import_patterns.get(lang)
+                    if pattern:
+                        for match in pattern.finditer(content):
+                            imported = match.group(1) or match.group(2)
+                            if imported:
+                                # 提取模块名（取第一段）
+                                top_module = imported.split(".")[0].split("/")[0]
+                                if top_module in module_names and top_module != module.name:
+                                    module.dependencies.add(top_module)
 
     def scan_git_history(self, max_commits: int = 50) -> Optional[Dict]:
         """
@@ -414,32 +505,45 @@ class CodeScanner:
         - 高频修改的热点文件
         - 近期结构调整
         - 缺陷修复相关的提交
+        - 作者统计（提交次数与代码变更量）
+        - 每周/每月提交分布
+        - 代码变更量（行数增减）
+        - 文件变更类型统计
 
         返回：
-            Git 历史分析结果
+            Git 历史分析结果字典
         """
         import subprocess
         try:
-            result = subprocess.run(
-                ["git", "-C", str(self.root_path), "log",
-                 f"-{max_commits}", "--pretty=format:%h|%ai|%s", "--name-only"],
+            # 获取当前分支名
+            branch_result = subprocess.run(
+                ["git", "-C", str(self.root_path), "rev-parse", "--abbrev-ref", "HEAD"],
                 capture_output=True, text=True
             )
-            if result.returncode != 0:
+            branch_name = branch_result.stdout.strip() if branch_result.returncode == 0 else "unknown"
+
+            # 获取提交日志（含作者、日期、文件变更）
+            log_result = subprocess.run(
+                ["git", "-C", str(self.root_path), "log",
+                 f"-{max_commits}", "--pretty=format:%h|%ai|%an|%s", "--name-only"],
+                capture_output=True, text=True
+            )
+            if log_result.returncode != 0:
                 return None
 
             # 解析提交日志
             commits = []
             current_commit = None
-            for line in result.stdout.split("\n"):
+            for line in log_result.stdout.split("\n"):
                 if "|" in line and not line.startswith(" "):
                     if current_commit:
                         commits.append(current_commit)
-                    parts = line.split("|", 2)
+                    parts = line.split("|", 3)
                     current_commit = {
                         "hash": parts[0],
                         "date": parts[1],
-                        "message": parts[2] if len(parts) > 2 else "",
+                        "author": parts[2] if len(parts) > 2 else "",
+                        "message": parts[3] if len(parts) > 3 else "",
                         "files": [],
                     }
                 elif current_commit and line.strip():
@@ -450,33 +554,150 @@ class CodeScanner:
             # 热点文件分析
             file_changes = Counter()
             fix_commits = []
+            author_counter = Counter()
+            weekly_counter = Counter()
+
             for commit in commits:
                 for f in commit["files"]:
                     file_changes[f] += 1
                 if any(kw in commit["message"].lower()
                        for kw in ("fix", "bug", "hotfix", "patch", "漏洞", "修复")):
                     fix_commits.append(commit)
+                if commit["author"]:
+                    author_counter[commit["author"]] += 1
+                # 按周统计
+                try:
+                    commit_date = datetime.strptime(commit["date"].split(" ")[0], "%Y-%m-%d")
+                    week_start = (commit_date - timedelta(days=commit_date.weekday())).strftime("%Y-%m-%d")
+                    weekly_counter[week_start] += 1
+                except (ValueError, IndexError):
+                    pass
+
+            # 代码变更量（使用 --numstat）
+            churn_result = subprocess.run(
+                ["git", "-C", str(self.root_path), "log",
+                 f"-{max_commits}", "--pretty=format:%h", "--numstat"],
+                capture_output=True, text=True
+            )
+            file_churn = defaultdict(lambda: {"added": 0, "deleted": 0})
+            for line in churn_result.stdout.split("\n"):
+                parts = line.split("\t")
+                if len(parts) == 3:
+                    added_str, deleted_str, file_path = parts
+                    if added_str != "-" and deleted_str != "-":
+                        try:
+                            added = int(added_str)
+                            deleted = int(deleted_str)
+                            file_churn[file_path]["added"] += added
+                            file_churn[file_path]["deleted"] += deleted
+                        except ValueError:
+                            pass
+
+            # 作者详细统计（含代码变更量）
+            author_detail = defaultdict(lambda: {"commits": 0, "lines_changed": 0})
+            for commit in commits:
+                if commit["author"]:
+                    author_detail[commit["author"]]["commits"] += 1
+            # 从 numstat 数据中按作者汇总变更量
+            log_numstat = subprocess.run(
+                ["git", "-C", str(self.root_path), "log",
+                 f"-{max_commits}", "--pretty=format:%an", "--numstat"],
+                capture_output=True, text=True
+            )
+            current_author = None
+            for line in log_numstat.stdout.split("\n"):
+                if not line.startswith("\t") and line.strip():
+                    current_author = line.strip()
+                elif "\t" in line:
+                    parts = line.split("\t")
+                    if len(parts) == 3 and current_author:
+                        try:
+                            added = int(parts[0]) if parts[0] != "-" else 0
+                            deleted = int(parts[1]) if parts[1] != "-" else 0
+                            author_detail[current_author]["lines_changed"] += added + deleted
+                        except ValueError:
+                            pass
+
+            author_stats = sorted(
+                [(author, data["commits"], data["lines_changed"])
+                 for author, data in author_detail.items()],
+                key=lambda x: x[1], reverse=True
+            )
+
+            weekly_activity = sorted(weekly_counter.items(), key=lambda x: x[0])
+            code_churn = sorted(
+                [(f, data["added"], data["deleted"]) for f, data in file_churn.items()],
+                key=lambda x: x[1] + x[2], reverse=True
+            )[:20]
+
+            result = GitHistoryResult(
+                total_commits_analyzed=len(commits),
+                hot_files=file_changes.most_common(10),
+                fix_commits=fix_commits[:10],
+                recent_commits=commits[:5],
+                author_stats=author_stats[:10],
+                weekly_activity=weekly_activity,
+                code_churn=code_churn,
+                branch_info=branch_name,
+            )
 
             return {
-                "total_commits_analyzed": len(commits),
-                "hot_files": file_changes.most_common(10),
-                "fix_commits": fix_commits[:10],
-                "recent_commits": commits[:5],
+                "total_commits_analyzed": result.total_commits_analyzed,
+                "hot_files": result.hot_files,
+                "fix_commits": result.fix_commits,
+                "recent_commits": result.recent_commits,
+                "author_stats": result.author_stats,
+                "weekly_activity": result.weekly_activity,
+                "code_churn": result.code_churn,
+                "branch_info": result.branch_info,
             }
         except (subprocess.SubprocessError, FileNotFoundError):
             return None
 
-    def run_full_scan(self) -> ProjectMetadata:
+    def _get_file_hash(self, content: str) -> int:
+        """计算文件内容的哈希值用于缓存校验"""
+        return hash(content)
+
+    def _check_cache(self, file_path: Path) -> Optional[FileMetadata]:
+        """检查文件缓存：如果 mtime 未变化则返回缓存的元数据"""
+        try:
+            current_mtime = file_path.stat().st_mtime
+            cache_key = str(file_path)
+            if cache_key in self._cache:
+                cached_mtime, _ = self._cache[cache_key]
+                if cached_mtime == current_mtime:
+                    return None  # 文件未变化，跳过
+        except OSError:
+            pass
+        return None
+
+    def _update_cache(self, file_path: Path, metadata: FileMetadata):
+        """更新文件缓存"""
+        try:
+            mtime = file_path.stat().st_mtime
+            self._cache[str(file_path)] = (mtime, hash(str(metadata)))
+        except OSError:
+            pass
+
+    def run_full_scan(self, max_workers: Optional[int] = None) -> ProjectMetadata:
         """
         执行完整扫描
 
         使用 ThreadPoolExecutor 并行分析所有源文件，
-        然后汇总统计元数据、检测技术栈、构建模块结构。
+        支持文件级缓存（基于 mtime）跳过未变更文件，
+        默认使用 CPU 核心数 * 2 个工作线程。
+
+        参数：
+            max_workers: 最大工作线程数，默认 CPU 核心数 * 2
 
         返回：
             完整的项目元数据
         """
         files = self.discover_files()
+
+        if max_workers is None:
+            max_workers = os.cpu_count() or 1
+            max_workers *= 2
 
         # 并行分析文件
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -485,16 +706,33 @@ class CodeScanner:
         file_metadata_list = []
         lock = threading.Lock()
 
-        with ThreadPoolExecutor(max_workers=min(8, len(files) or 1)) as executor:
-            future_to_file = {executor.submit(self.analyze_file, f): f for f in files}
-            for future in as_completed(future_to_file):
+        # 将文件列表分块，每块约50个文件
+        chunk_size = 50
+        file_chunks = [files[i:i + chunk_size] for i in range(0, len(files), chunk_size)]
+
+        def process_chunk(chunk: List[Path]) -> List[FileMetadata]:
+            """处理一个文件块"""
+            results = []
+            for f in chunk:
+                # 检查缓存
+                cached = self._check_cache(f)
+                if cached is not None:
+                    continue  # 文件未变化
+                metadata = self.analyze_file(f)
+                self._update_cache(f, metadata)
+                results.append(metadata)
+            return results
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(files) or 1)) as executor:
+            future_to_chunk = {executor.submit(process_chunk, chunk): chunk for chunk in file_chunks}
+            for future in as_completed(future_to_chunk):
                 try:
-                    metadata = future.result()
+                    chunk_results = future.result()
                     with lock:
-                        file_metadata_list.append(metadata)
+                        file_metadata_list.extend(chunk_results)
                 except Exception as e:
                     logging.getLogger(__name__).warning(
-                        f"Failed to analyze {future_to_file[future]}: {e}"
+                        f"Failed to process chunk: {e}"
                     )
 
         self.file_metadata = file_metadata_list

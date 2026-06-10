@@ -620,10 +620,9 @@ class SemanticAnalyzer:
         }
         for imp in imports:
             base = imp.split(".")[0]
-            if base in common_rationales:
-                rationale[imp] = common_rationales[base]
-            else:
-                rationale[imp] = f"推断为 {module_name} 模块所需的{base}库"
+            rationale[imp] = common_rationales.get(
+                base, f"推断为 {module_name} 模块所需的{base}库"
+            )
 
         return rationale
 
@@ -830,8 +829,7 @@ def analyze_semantics(project_root: str, target_files: List[str] = None) -> Dict
             results[str(file_path)] = {"error": f"Syntax error: {e}"}
         except (IOError, UnicodeDecodeError, MemoryError) as e:
             results[str(file_path)] = {"error": f"File processing error: {e}"}
-        except Exception as e:
-            # 最外层兜底：确保单个文件的分析失败不会阻塞整个批处理
+        except Exception as e:  # 最外层兜底：确保单个文件的分析失败不会阻塞整个批处理
             logging.getLogger(__name__).warning(f"Unexpected error analyzing {file_path}: {e}")
             results[str(file_path)] = {"error": str(e)}
 

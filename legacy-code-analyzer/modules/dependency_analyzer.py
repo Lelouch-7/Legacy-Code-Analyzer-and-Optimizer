@@ -423,7 +423,9 @@ class DependencyAnalyzer:
                 if re.search(rf"\b{re.escape(var)}\b", line):
                     # 检查是否在同一行有赋值（排除自身）
                     if not re.match(rf"^\s*{re.escape(var)}\s*=", line):
-                        variable_events[var].append((i + 1, "read"))
+                        events = variable_events.get(var)
+                        if events is not None:
+                            events.append((i + 1, "read"))
 
         # 分类
         for var, events in variable_events.items():

@@ -563,7 +563,7 @@ class InteractiveExplorer:
         except (FileNotFoundError, PermissionError, OSError) as e:
             logging.getLogger(__name__).warning(f"File access error in analysis query '{query_type}' for '{target}': {e}")
             result["error"] = f"File error: {e}"
-        except Exception as e:
+        except Exception as e:  # 最外层兜底：确保分析失败不阻塞后续查询
             logging.getLogger(__name__).warning(f"Unexpected error in analysis query '{query_type}' for '{target}': {e}")
             result["error"] = str(e)
 

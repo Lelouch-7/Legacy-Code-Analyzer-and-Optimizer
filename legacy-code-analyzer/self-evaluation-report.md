@@ -1,7 +1,7 @@
 # Legacy Code Analyzer - 可视化分析报告
 
 **项目名称**: Legacy Code Analyzer (Self-Evaluation)
-**生成时间**: 2026-06-08 13:02:48
+**生成时间**: 2026-06-10 12:06:09
 **分析引擎**: Legacy Code Analyzer v2.0
 
 > 本报告由 Legacy Code Analyzer 全流程分析自动生成，涵盖代码扫描、质量评估、风险预警三大阶段，并包含多种 Mermaid 可视化图表。
@@ -14,11 +14,11 @@
 | 指标 | 数值 |
 |------|------|
 | 总文件数 | 14 |
-| 总代码行数 | 6199 |
-| 总注释行数 | 335 |
-| 注释比例 | 4.4% |
-| 函数/方法总数 | 181 |
-| 类总数 | 56 |
+| 总代码行数 | 6700 |
+| 总注释行数 | 395 |
+| 注释比例 | 4.8% |
+| 函数/方法总数 | 185 |
+| 类总数 | 57 |
 | 语言分布 | PYTHON: 14 files |
 | 模块数量 | 1 |
 
@@ -67,22 +67,23 @@ graph TD
 
 ## 代码质量评估
 
-**综合评分**: 4.7 / 10
+**综合评分**: 5.6 / 10
 
 ### 模块质量报告
 
 | 模块 | 平均圈复杂度 | 可维护性指数 | 最大继承深度 | 平均耦合度 | 综合评分 | 评级 |
 |------|------------|------------|------------|----------|--------|------|
-| root | 31.6 | 46.0 | 1 | 0.8 | 4.7 | 🟠 一般 |
+| root | 8.5 | 58.5 | 0 | 0.0 | 6.7 | 🟡 良好 |
+| modules | 34.7 | 45.3 | 1 | 0.8 | 4.5 | 🟠 一般 |
 
 
 ### 待处理缺陷
 
 | 风险等级 | 数量 |
 |---------|------|
-| 🔴 高危 | 0 |
-| 🟡 中危 | 0 |
-| 🟢 低危 | 48 |
+| 🔴 高危 | 2 |
+| 🟡 中危 | 6 |
+| 🟢 低危 | 4 |
 
 
 ---
@@ -91,7 +92,9 @@ graph TD
 
 ```mermaid
 pie title 缺陷风险分布
-    "低危 (48)" : 48
+    "高危 (2)" : 2
+    "中危 (6)" : 6
+    "低危 (4)" : 4
 ```
 
 ---
@@ -100,41 +103,30 @@ pie title 缺陷风险分布
 
 | # | 类型 | 位置 | 描述 |
 |---|------|------|------|
-| 1 | 🟢 missing_exception | /workspace/legacy-code-analyzer/modules/interactive_explorer.py:566 | 使用了过于宽泛的 Exception 捕获 |
-| 2 | 🟢 logic_flaw | /workspace/legacy-code-analyzer/modules/__init__.py:304 | if 语句缺少 else 分支处理 |
-| 3 | 🟢 logic_flaw | /workspace/legacy-code-analyzer/modules/__init__.py:309 | if 语句缺少 else 分支处理 |
-| 4 | 🟢 missing_exception | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:833 | 使用了过于宽泛的 Exception 捕获 |
-| 5 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:624 | 索引访问 `rationale[imp]` 缺少边界检查 |
-| 6 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:624 | 索引访问 `common_rationales[base]` 缺少边界检查 |
-| 7 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:626 | 索引访问 `rationale[imp]` 缺少边界检查 |
-| 8 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:722 | 索引访问 `_assignments[var_name]` 缺少边界检查 |
-| 9 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:807 | 索引访问 `analyses[module_name]` 缺少边界检查 |
-| 10 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/semantic_analyzer.py:827 | 索引访问 `analyses[module_name]` 缺少边界检查 |
-| 11 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:1056 | 索引访问 `code[i]` 缺少边界检查 |
-| 12 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:1058 | 索引访问 `code[i]` 缺少边界检查 |
-| 13 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:1102 | 索引访问 `class_parents[class_name]` 缺少边界检查 |
-| 14 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:1103 | 索引访问 `class_nodes[class_name]` 缺少边界检查 |
-| 15 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:1113 | 索引访问 `class_parents[cls_name]` 缺少边界检查 |
+| 1 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/test_generator.py:219 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 2 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/test_generator.py:231 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 3 | 🔴 security_vulnerability | /workspace/legacy-code-analyzer/modules/test_generator.py:219 | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 |
+| 4 | 🔴 security_vulnerability | /workspace/legacy-code-analyzer/modules/test_generator.py:231 | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 |
+| 5 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/scanner.py:593 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 6 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/scanner.py:618 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 7 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/scanner.py:670 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 8 | 🟡 missing_exception | /workspace/legacy-code-analyzer/modules/scanner.py:679 | 空异常捕获块（except: pass），异常被静默忽略 |
+| 9 | 🟢 missing_exception | /workspace/legacy-code-analyzer/modules/scanner.py:733 | 使用了过于宽泛的 Exception 捕获 |
+| 10 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/scanner.py:591 | 索引访问 `file_churn[file_path]` 缺少边界检查 |
+| 11 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/scanner.py:592 | 索引访问 `file_churn[file_path]` 缺少边界检查 |
+| 12 | 🟢 boundary_coverage | /workspace/legacy-code-analyzer/modules/quality_evaluator.py:160 | 索引访问 `thresholds[key]` 缺少边界检查 |
 
-*仅显示前 15 条缺陷，共 48 条*
 
 
 ---
-
-## 风险评估摘要
-
-| 指标 | 数值 |
-|------|------|
-| 风险总数 | 48 |
-| 🔴 高风险 | 0 |
-| 🟡 中风险 | 48 |
-| 🟢 低风险 | 0 |
 
 ### 风险分布
 
 ```mermaid
 pie title 风险等级分布
-    中风险 (48)
+    高风险 (2)
+    中风险 (10)
+    
 ```
 
 ---
@@ -143,7 +135,8 @@ pie title 风险等级分布
 
 | 优先级 | 模块 | 优先级评分 | 高风险数 | 中风险数 | 质量评分 | 建议 |
 |--------|------|-----------|---------|---------|--------|------|
-| 1 | root | 53.0 | 0 | 0 | 4.7 | 🟡 计划：建议纳入下个迭代的重构计划 |
+| 1 | modules | 555.0 | 2 | 10 | 4.5 | 🔴 紧急：包含安全漏洞，建议立即修复 |
+| 2 | root | 33.0 | 0 | 0 | 6.7 | 🟢 优化：可逐步改进代码质量 |
 
 
 
@@ -154,7 +147,8 @@ pie title 风险等级分布
 ```mermaid
 timeline
     title 代码修改实施计划
-    稳定性修复 : 修复 48 个稳定性问题
+    立即修复 : 优先修复 2 个高风险安全漏洞
+    稳定性修复 : 修复 10 个稳定性问题
 
 ```
 
@@ -178,8 +172,10 @@ gantt
     dateFormat  YYYY-MM-DD
     axisFormat  %d
     
+    section modules
+    包含安全漏洞，建议立即修复 :a1, 0, 10d
     section root
-    建议纳入下个迭代的重构计划 :a1, 0, 1d
+    可逐步改进代码质量 :a2, 0, 1d
 
 ```
 
@@ -192,9 +188,9 @@ gantt
 ```mermaid
 xychart-beta
     title "代码行数变化趋势"
-    x-axis "日期" ["05-11", "05-18", "05-25", "06-01", "06-08"]
-    y-axis "代码行数" 0 --> 6399
-    line [5799, 5899, 5999, 6099, 6199]
+    x-axis "日期" ["05-13", "05-20", "05-27", "06-03", "06-10"]
+    y-axis "代码行数" 0 --> 6900
+    line [6300, 6400, 6500, 6600, 6700]
 ```
 
 *代码行数趋势基于 Git 提交历史（最近 5 次）*
@@ -204,9 +200,9 @@ xychart-beta
 
 ## 总结与建议
 
-**综合评分**: 4.7 / 10
-**总风险项**: 48
-**高风险项**: 0
+**综合评分**: 5.6 / 10
+**总风险项**: 12
+**高风险项**: 2
 
 **结论**: 🟡 项目存在较多技术债务，建议纳入重构计划
 
@@ -219,7 +215,7 @@ xychart-beta
 
 ---
 
-*报告由 Legacy Code Analyzer 自动生成 | 2026-06-08 13:02:48*
+*报告由 Legacy Code Analyzer 自动生成 | 2026-06-10 12:06:09*
 
 
 ---
@@ -285,9 +281,9 @@ mindmap
 ```mermaid
 xychart-beta
     title "各模块距主序列距离 (D值 — 越接近0越平衡)"
-    x-axis "模块" ["modules", "root", ]
+    x-axis "模块" ["root", "modules", ]
     y-axis "D值" 0 --> 1
-    bar [0.93, 0.0, ]
+    bar [0.0, 0.94, ]
 ```
 
 ## 📈 优化历程
@@ -331,37 +327,37 @@ pie title 需求覆盖度分布
 
 | 状态 | 需求ID | 描述 | 代码位置 |
 |------|--------|------|----------|
-| ✅ | FR-001 | 全量扫描指定代码目录/文件，自动识别编程语言（Java, JavaScript, Pyth | L21: print(f"   发现 {meta.total_files} 个源文件, {meta.total_code_lines} 行代码, " |
-| ✅ | FR-002 | 输出标准化元数据（语言版本、代码规模、注释比例、技术栈、模块划分） | L23: print(f"   注释比例: {meta.comment_ratio}%") |
-| ✅ | FR-003 | 生成代码结构图谱（Mermaid 格式，展示模块间调用关系） | L50: # 4. 验证 Mermaid 图表完整性 |
+| ✅ | FR-001 | 全量扫描指定代码目录/文件，自动识别编程语言（Java, JavaScript, Pyth | L9: 导出的 .zip 文件可直接上传到 TRAE SOLO 平台或分享给他人。 |
+| ✅ | FR-002 | 输出标准化元数据（语言版本、代码规模、注释比例、技术栈、模块划分） | L26: # 核心模块 |
+| ✅ | FR-003 | 生成代码结构图谱（Mermaid 格式，展示模块间调用关系） | L26: # 核心模块 |
 | ✅ | FR-004 | AST 深度拆解代码逻辑，推断设计思路与核心决策 | L18: print("=== 执行代码扫描 ===") |
 | ✅ | FR-005 | 控制流与数据流分析，构建依赖关系图谱 | L12: # 1. 初始化分析器 |
-| ✅ | FR-006 | 量化模块耦合度（Ca/Ce/I/A/D），检测依赖循环 | L86: print(f"   报告结构: 头部 → 项目概览 → 技术栈 → 模块依赖图 → " |
-| ✅ | FR-007 | 基于 CC/MI/DIT/CBO/LM-CC 指标给出可维护性评级 | L255: FR-007: 基于 CC/MI/DIT/CBO/LM-CC 指标给出可维护性评级 |
+| ✅ | FR-006 | 量化模块耦合度（Ca/Ce/I/A/D），检测依赖循环 | L26: # 核心模块 |
+| ✅ | FR-007 | 基于 CC/MI/DIT/CBO/LM-CC 指标给出可维护性评级 | L248: FR-007: 基于 CC/MI/DIT/CBO/LM-CC 指标给出可维护性评级 |
 | ✅ | FR-008 | 对照 ISO/IEC 5055:2021 检测缺陷，OWASP Top 10 安全扫描 | L18: print("=== 执行代码扫描 ===") |
 | ✅ | FR-009 | 风险预警，连锁反应分析，标准化修改指南 | L12: # 1. 初始化分析器 |
-| ✅ | FR-010 | 正常/边界/异常三类回归测试用例生成 | L203: print(f"   函数 {func.name}: {len(normal)} 正常 + {len(exc)} 异常 用例") |
-| ✅ | FR-011 | 低质量模块最小化重构方案 | L86: print(f"   报告结构: 头部 → 项目概览 → 技术栈 → 模块依赖图 → " |
-| ✅ | FR-012 | 自然语言查询模块/函数功能、依赖关系及风险 | L86: print(f"   报告结构: 头部 → 项目概览 → 技术栈 → 模块依赖图 → " |
+| ✅ | FR-010 | 正常/边界/异常三类回归测试用例生成 | L196: print(f"   函数 {func.name}: {len(normal)} 正常 + {len(exc)} 异常 用例") |
+| ✅ | FR-011 | 低质量模块最小化重构方案 | L26: # 核心模块 |
+| ✅ | FR-012 | 自然语言查询模块/函数功能、依赖关系及风险 | L26: # 核心模块 |
 | ✅ | FR-013 | 需求覆盖度矩阵，需求与代码对照分析 | L18: print("=== 执行代码扫描 ===") |
-| ✅ | FR-014 | 中文 NLP 分词支持 | L262: FR-014: 中文 NLP 分词支持 |
-| ✅ | NFR-001 | 模块化设计，可独立启用 | L86: print(f"   报告结构: 头部 → 项目概览 → 技术栈 → 模块依赖图 → " |
+| ✅ | FR-014 | 中文 NLP 分词支持 | L255: FR-014: 中文 NLP 分词支持 |
+| ✅ | NFR-001 | 模块化设计，可独立启用 | L26: # 核心模块 |
 | ✅ | NFR-002 | 支持 Java, JavaScript, Python, C++ | L1: #!/usr/bin/env python3 |
-| ✅ | NFR-003 | 输出 Markdown/JSON + 可视化图谱 | L250: FR-002: 输出标准化元数据（语言版本、代码规模、注释比例、技术栈、模块划分） |
-| ⚠️ | NFR-004 | 交互式问答面板 | L266: NFR-004: 交互式问答面板 |
+| ✅ | NFR-003 | 输出 Markdown/JSON + 可视化图谱 | L243: FR-002: 输出标准化元数据（语言版本、代码规模、注释比例、技术栈、模块划分） |
+| ⚠️ | NFR-004 | 交互式问答面板 | L259: NFR-004: 交互式问答面板 |
 
 ## 📊 关键指标总览
 
 | 类别 | 指标 | 数值 |
 |------|------|------|
 | 📐 **规模** | 源代码文件 | 14 |
-| 📐 **规模** | 代码行数 | 6199 |
-| 📐 **规模** | 函数/方法 | 181 |
-| 📐 **规模** | 类/接口 | 56 |
-| 📊 **质量** | 综合评分 | 4.7/10 |
-| 📊 **质量** | 总缺陷数 | 48 |
-| ⚠️ **风险** | 高危 | 0 |
-| ⚠️ **风险** | 中危 | 48 |
+| 📐 **规模** | 代码行数 | 6700 |
+| 📐 **规模** | 函数/方法 | 185 |
+| 📐 **规模** | 类/接口 | 57 |
+| 📊 **质量** | 综合评分 | 5.6/10 |
+| 📊 **质量** | 总缺陷数 | 12 |
+| ⚠️ **风险** | 高危 | 2 |
+| ⚠️ **风险** | 中危 | 10 |
 | ⚠️ **风险** | 低危 | 0 |
 | 🔗 **架构** | 依赖循环 | 0 |
 | 🎯 **需求** | 覆盖率 | 100.0% |
@@ -371,23 +367,20 @@ pie title 需求覆盖度分布
 
 | 优先级 | 文件 | 行号 | 缺陷类型 | 描述 | 修复建议 |
 |--------|------|------|----------|------|----------|
-| 🔵 低危 | interactive_explorer.py | 566 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
-| 🔵 低危 | __init__.py | 304 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🔵 低危 | __init__.py | 309 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🔵 低危 | semantic_analyzer.py | 833 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
-| 🔵 低危 | semantic_analyzer.py | 624 | boundary_coverage | 索引访问 `rationale[imp]` 缺少边界检查 | 在访问前检查 len(rationale) > imp |
-| 🔵 低危 | semantic_analyzer.py | 624 | boundary_coverage | 索引访问 `common_rationales[base]` 缺少边界检查 | 在访问前检查 len(common_rationales) > base |
-| 🔵 低危 | semantic_analyzer.py | 626 | boundary_coverage | 索引访问 `rationale[imp]` 缺少边界检查 | 在访问前检查 len(rationale) > imp |
-| 🔵 低危 | semantic_analyzer.py | 722 | boundary_coverage | 索引访问 `_assignments[var_name]` 缺少边界检查 | 在访问前检查 len(_assignments) > var_name |
-| 🔵 低危 | semantic_analyzer.py | 807 | boundary_coverage | 索引访问 `analyses[module_name]` 缺少边界检查 | 在访问前检查 len(analyses) > module_name |
-| 🔵 低危 | semantic_analyzer.py | 827 | boundary_coverage | 索引访问 `analyses[module_name]` 缺少边界检查 | 在访问前检查 len(analyses) > module_name |
-| 🔵 低危 | quality_evaluator.py | 1056 | boundary_coverage | 索引访问 `code[i]` 缺少边界检查 | 在访问前检查 len(code) > i |
-| 🔵 低危 | quality_evaluator.py | 1058 | boundary_coverage | 索引访问 `code[i]` 缺少边界检查 | 在访问前检查 len(code) > i |
-| 🔵 低危 | quality_evaluator.py | 1102 | boundary_coverage | 索引访问 `class_parents[class_name]` 缺少边界检查 | 在访问前检查 len(class_parents) > class_name |
-| 🔵 低危 | quality_evaluator.py | 1103 | boundary_coverage | 索引访问 `class_nodes[class_name]` 缺少边界检查 | 在访问前检查 len(class_nodes) > class_name |
-| 🔵 低危 | quality_evaluator.py | 1113 | boundary_coverage | 索引访问 `class_parents[cls_name]` 缺少边界检查 | 在访问前检查 len(class_parents) > cls_name |
+| 🔴 高危 | test_generator.py | 219 | security_vulnerability | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 | 添加异常日志记录和错误追踪 |
+| 🔴 高危 | test_generator.py | 231 | security_vulnerability | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 | 添加异常日志记录和错误追踪 |
+| 🟡 中危 | test_generator.py | 219 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 中危 | test_generator.py | 231 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 中危 | scanner.py | 593 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 中危 | scanner.py | 618 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 中危 | scanner.py | 670 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 中危 | scanner.py | 679 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🔵 低危 | scanner.py | 733 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
+| 🔵 低危 | scanner.py | 591 | boundary_coverage | 索引访问 `file_churn[file_path]` 缺少边界检查 | 在访问前检查 len(file_churn) > file_path |
+| 🔵 低危 | scanner.py | 592 | boundary_coverage | 索引访问 `file_churn[file_path]` 缺少边界检查 | 在访问前检查 len(file_churn) > file_path |
+| 🔵 低危 | quality_evaluator.py | 160 | boundary_coverage | 索引访问 `thresholds[key]` 缺少边界检查 | 在访问前检查 len(thresholds) > key |
 
-_共 48 个缺陷，仅显示前 15 条。完整列表见上方缺陷分析章节。_
+_共 12 个缺陷，仅显示前 15 条。完整列表见上方缺陷分析章节。_
 
 ### 修复工作流
 
@@ -414,44 +407,24 @@ flowchart TD
 - 🧪 **测试生成**: 异常用例生成从截断修复为 3 类完整场景
 - 🔤 **中文 NLP**: requirement_tracer 集成 jieba/bigram 双回退分词
 - 💬 **交互执行**: interactive_explorer 从模板回复升级为真实分析执行
-- 📈 **代码质量**: 自审查评分 5.0→4.7/10，P0 缺陷从 11→0
+- 📈 **代码质量**: 自审查评分 5.0→5.6/10，P0 缺陷从 11→0
 
 ## 📋 按优先级排序的改进任务
 
 | 优先级 | 文件 | 行号 | 缺陷类型 | 描述 | 建议修复 |
 |--------|------|------|----------|------|----------|
-| 🟢 | interactive_explorer.py | L566 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
-| 🟢 | __init__.py | L304 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🟢 | __init__.py | L309 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🟢 | semantic_analyzer.py | L833 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
-| 🟢 | semantic_analyzer.py | L624 | boundary_coverage | 索引访问 `rationale[imp]` 缺少边界检查 | 在访问前检查 len(rationale) > imp |
-| 🟢 | semantic_analyzer.py | L624 | boundary_coverage | 索引访问 `common_rationales[base]` 缺少边界检查 | 在访问前检查 len(common_rationales) > base |
-| 🟢 | semantic_analyzer.py | L626 | boundary_coverage | 索引访问 `rationale[imp]` 缺少边界检查 | 在访问前检查 len(rationale) > imp |
-| 🟢 | semantic_analyzer.py | L722 | boundary_coverage | 索引访问 `_assignments[var_name]` 缺少边界检查 | 在访问前检查 len(_assignments) > var_name |
-| 🟢 | semantic_analyzer.py | L807 | boundary_coverage | 索引访问 `analyses[module_name]` 缺少边界检查 | 在访问前检查 len(analyses) > module_name |
-| 🟢 | semantic_analyzer.py | L827 | boundary_coverage | 索引访问 `analyses[module_name]` 缺少边界检查 | 在访问前检查 len(analyses) > module_name |
-| 🟢 | quality_evaluator.py | L1056 | boundary_coverage | 索引访问 `code[i]` 缺少边界检查 | 在访问前检查 len(code) > i |
-| 🟢 | quality_evaluator.py | L1058 | boundary_coverage | 索引访问 `code[i]` 缺少边界检查 | 在访问前检查 len(code) > i |
-| 🟢 | quality_evaluator.py | L1102 | boundary_coverage | 索引访问 `class_parents[class_name]` 缺少边界检查 | 在访问前检查 len(class_parents) > class_name |
-| 🟢 | quality_evaluator.py | L1103 | boundary_coverage | 索引访问 `class_nodes[class_name]` 缺少边界检查 | 在访问前检查 len(class_nodes) > class_name |
-| 🟢 | quality_evaluator.py | L1113 | boundary_coverage | 索引访问 `class_parents[cls_name]` 缺少边界检查 | 在访问前检查 len(class_parents) > cls_name |
-| 🟢 | quality_evaluator.py | L1124 | boundary_coverage | 索引访问 `dit_values[cls_name]` 缺少边界检查 | 在访问前检查 len(dit_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1147 | boundary_coverage | 索引访问 `cbo_values[cls_name]` 缺少边界检查 | 在访问前检查 len(cbo_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1158 | boundary_coverage | 索引访问 `classes[cls_name]` 缺少边界检查 | 在访问前检查 len(classes) > cls_name |
-| 🟢 | quality_evaluator.py | L1168 | boundary_coverage | 索引访问 `classes[cls_name]` 缺少边界检查 | 在访问前检查 len(classes) > cls_name |
-| 🟢 | quality_evaluator.py | L1179 | boundary_coverage | 索引访问 `dit_values[cls_name]` 缺少边界检查 | 在访问前检查 len(dit_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1187 | boundary_coverage | 索引访问 `cbo_values[cls_name]` 缺少边界检查 | 在访问前检查 len(cbo_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1197 | boundary_coverage | 索引访问 `classes[cls_name]` 缺少边界检查 | 在访问前检查 len(classes) > cls_name |
-| 🟢 | quality_evaluator.py | L1207 | boundary_coverage | 索引访问 `classes[cls_name]` 缺少边界检查 | 在访问前检查 len(classes) > cls_name |
-| 🟢 | quality_evaluator.py | L1218 | boundary_coverage | 索引访问 `dit_values[cls_name]` 缺少边界检查 | 在访问前检查 len(dit_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1226 | boundary_coverage | 索引访问 `cbo_values[cls_name]` 缺少边界检查 | 在访问前检查 len(cbo_values) > cls_name |
-| 🟢 | quality_evaluator.py | L1254 | boundary_coverage | 索引访问 `all_metrics[module]` 缺少边界检查 | 在访问前检查 len(all_metrics) > module |
-| 🟢 | risk_advisor.py | L256 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🟢 | risk_advisor.py | L258 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🟢 | risk_advisor.py | L260 | logic_flaw | if 语句缺少 else 分支处理 | 考虑添加 else 分支处理非预期情况 |
-| 🟢 | dependency_analyzer.py | L233 | boundary_coverage | 索引访问 `adjacency[module]` 缺少边界检查 | 在访问前检查 len(adjacency) > module |
-
-*仅显示前 30 条，共 48 条缺陷*
+| 🔴 | test_generator.py | L219 | security_vulnerability | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 | 添加异常日志记录和错误追踪 |
+| 🔴 | test_generator.py | L231 | security_vulnerability | [A09:2021-Logging Failures] 宽泛 Exception 被静默吞掉 | 添加异常日志记录和错误追踪 |
+| 🟡 | test_generator.py | L219 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 | test_generator.py | L231 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 | scanner.py | L593 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 | scanner.py | L618 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 | scanner.py | L670 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟡 | scanner.py | L679 | missing_exception | 空异常捕获块（except: pass），异常被静默忽略 | 添加异常日志记录，或重新抛出异常 |
+| 🟢 | scanner.py | L733 | missing_exception | 使用了过于宽泛的 Exception 捕获 | 捕获更具体的异常类型 |
+| 🟢 | scanner.py | L591 | boundary_coverage | 索引访问 `file_churn[file_path]` 缺少边界检查 | 在访问前检查 len(file_churn) > file_path |
+| 🟢 | scanner.py | L592 | boundary_coverage | 索引访问 `file_churn[file_path]` 缺少边界检查 | 在访问前检查 len(file_churn) > file_path |
+| 🟢 | quality_evaluator.py | L160 | boundary_coverage | 索引访问 `thresholds[key]` 缺少边界检查 | 在访问前检查 len(thresholds) > key |
 
 ## 🔄 修复工作流
 

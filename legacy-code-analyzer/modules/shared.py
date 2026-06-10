@@ -28,6 +28,14 @@ class DependencyType(Enum):
     ENVIRONMENT_VARIABLE = "environment_variable"
     FILE_SYSTEM = "file_system"
     REFLECTION = "reflection"
+    RPC_CALL = "rpc_call"
+    MESSAGE_QUEUE = "message_queue"
+    CONFIG_CENTER = "config_center"
+    DYNAMIC_PROXY = "dynamic_proxy"
+    EVENT_BUS = "event_bus"
+    DISTRIBUTED_CACHE = "distributed_cache"
+    EXTERNAL_API = "external_api"
+    SERIALIZATION = "serialization"
     IMPLICIT_CROSS_MODULE = "implicit_cross_module"
 
 
@@ -188,6 +196,54 @@ IMPLICIT_PATTERNS = {
     DependencyType.REFLECTION: [
         r"(?:eval\(|exec\(|reflect|Class\.forName|getattr\(|setattr\(|"
         r"call_user_func|invoke)",
+    ],
+    # RPC/服务调用：检测微服务间的 gRPC、Thrift、Dubbo、Feign、Retrofit 等远程调用，
+    # 以及 RestTemplate、axios、fetch、$http、ajax、XMLHttpRequest 等 HTTP 客户端调用
+    DependencyType.RPC_CALL: [
+        r"grpc\.(?:invoke|unary|stream)|thrift\.*|dubbo\.*|restTemplate\.|feign\.|Retrofit\.*|"
+        r"axios\.(?:get|post|put|delete)|fetch\(|\$http\.|ajax\(|XMLHttpRequest",
+    ],
+    # 消息队列：检测 RabbitMQ、Kafka、NATS、Redis 流、Celery 等消息发布/订阅/消费模式，
+    # 适用于事件驱动架构和异步任务处理场景
+    DependencyType.MESSAGE_QUEUE: [
+        r"rabbitmq|kafka\.|publish\(|subscribe\(|consume\(|produce\(|send_message|"
+        r"push_queue|pop_queue|nats\.|redis\.(?:publish|xadd|xread)|celery\.|task_queue",
+    ],
+    # 配置中心与服务发现：检测 Consul、etcd、ZooKeeper、Nacos、Apollo 等配置管理
+    # 和服务注册发现组件的客户端调用
+    DependencyType.CONFIG_CENTER: [
+        r"consul\.|etcd\.|zookeeper\.|nacos\.|apollo\.|config_center|get_config|"
+        r"refresh_config|config_manager|spring\.cloud\.config",
+    ],
+    # 动态代理 / AOP：检测 Java Proxy.newProxyInstance、javassist、cglib、ByteBuddy 等
+    # 字节码操作和 AOP 框架，以及 Python 装饰器、元类、__getattr__/__setattr__ 等动态特性
+    DependencyType.DYNAMIC_PROXY: [
+        r"Proxy\.newProxyInstance|javassist|cglib|ByteBuddy|aop\.|Aspect|@Around|@Before|@After|"
+        r"interceptor|middleware|decorator|@decorator|metaclass|__getattr__|__setattr__",
+    ],
+    # 事件总线 / 发布订阅：检测 EventBus、emit/on 事件监听、addEventListener、dispatchEvent、
+    # Qt pyqtSignal、asyncio.Signal、blinker 等进程内事件通信机制
+    DependencyType.EVENT_BUS: [
+        r"event_bus|EventBus|publish_event|emit\(|on\(|addEventListener|dispatchEvent|"
+        r"signal\.connect|pyqtSignal|asyncio\.Signal|blinker",
+    ],
+    # 分布式缓存：检测 Redis、Memcached、EhCache、CacheManager 等缓存系统，
+    # 以及 Spring @Cacheable/@CachePut 注解和通用缓存 get/put/invalidate 操作
+    DependencyType.DISTRIBUTED_CACHE: [
+        r"redis\.(?:get|set|hget|hset|lpush|rpush|zadd)|memcached|EhCache|CacheManager|"
+        r"@Cacheable|@CachePut|cache\.get|cache\.put|cache\.invalidate",
+    ],
+    # 外部 API / SDK 集成：检测 AWS (boto3)、GCP (gcloud)、Azure、Stripe、Twilio、SendGrid、
+    # Slack、Discord、GitHub、OpenAI 等第三方云服务和 SDK 的 API 调用
+    DependencyType.EXTERNAL_API: [
+        r"boto3\.|aws\.|gcloud\.|azure\.|stripe\.|twilio\.|sendgrid|slack_client|discord\.|"
+        r"github\.|google\.api|openai\.|requests\.(?:get|post|put|delete)|httpx\.|aiohttp\.session",
+    ],
+    # 序列化 / RPC 协议：检测 pickle、JSON、YAML、protobuf、MessagePack、avro 等序列化/反
+    # 序列化操作，适用于跨服务数据交换场景
+    DependencyType.SERIALIZATION: [
+        r"pickle\.(?:dumps|loads)|json\.(?:dumps|loads)|yaml\.(?:dump|load)|protobuf|"
+        r"MessagePack|avro\.|serialize|deserialize|marshal\.|unmarshal|xml\.(?:etree|ElementTree)",
     ],
     "__dynamic_import__": [
         r"__import__\s*\(",              # 动态导入

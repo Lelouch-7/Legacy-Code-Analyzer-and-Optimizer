@@ -30,6 +30,12 @@ class TestCase:
     code: str
     expected_behavior: str
     test_framework: str
+    # 新增字段（带默认值，保持向后兼容）
+    name: str = ""
+    input_desc: str = ""
+    expected_assertion: str = ""
+    category: str = ""
+    source_context: str = ""
 
 
 @dataclass
@@ -191,14 +197,95 @@ class TestGenerator:
 
         args_str = ", ".join(typical_values)
 
+        # 分析函数体，生成上下文感知的断言
+        func_body = ""
+        try:
+            source = file_path.read_text(encoding="utf-8", errors="replace")
+            lines = source.split('\n')
+            for i, line in enumerate(lines):
+                if 'def ' + func.name in line:
+                    body_lines = []
+                    indent = None
+                    for j in range(i+1, min(i+50, len(lines))):
+                        if indent is None and lines[j].strip():
+                            indent = len(lines[j]) - len(lines[j].lstrip())
+                        if indent is not None:
+                            stripped = lines[j]
+                            if stripped.strip() and len(stripped) - len(stripped.lstrip()) < indent:
+                                break
+                            body_lines.append(stripped)
+                    func_body = '\n'.join(body_lines)
+                    break
+        except Exception:
+            pass
+
+        # 检测已有 fixture
+        existing_fixtures = []
+        try:
+            source = file_path.read_text(encoding="utf-8", errors="replace")
+            for match in re.finditer(
+                r"@(?:pytest\.fixture|mock\.patch|unittest\.mock)\s*(?:\([^)]*\))?\s*\n\s*def\s+(\w+)",
+                source
+            ):
+                existing_fixtures.append(match.group(1))
+        except Exception:
+            pass
+
+        fixture_comment = ""
+        if existing_fixtures:
+            fixture_names = ", ".join(existing_fixtures)
+            fixture_comment = f"    # 提示：文件中存在可用fixture: {fixture_names}\n"
+
+        # 基于函数体生成更具体的断言
+        body_lower = func_body.lower()
+        assertion_code = "    assert result is not None"
+        source_context = "默认断言（fallback）"
+        expected_assertion = "result is not None"
+
+        if "return true" in body_lower or "return false" in body_lower:
+            assertion_code = (
+                "    assert result is True or result is False\n"
+                "    assert isinstance(result, bool)"
+            )
+            source_context = "检测到布尔返回值"
+            expected_assertion = "result is True/False 且类型为 bool"
+        elif "return none" in body_lower or "return None" in func_body:
+            assertion_code = "    assert result is None"
+            source_context = "检测到返回 None"
+            expected_assertion = "result is None"
+        elif any(op in func_body for op in [" + ", " - ", " * ", " / ", " % "]):
+            assertion_code = (
+                "    assert result is not None\n"
+                "    assert isinstance(result, (int, float))"
+            )
+            source_context = "检测到数学运算"
+            expected_assertion = "result 为数值类型"
+        elif "if " in func_body and any(op in func_body for op in ["==", "!=", ">", "<", ">=", "<=", "in "]):
+            assertion_code = (
+                "    assert result is not None\n"
+                "    # TODO: 根据分支条件补充预期值\n"
+                "    # 检测到条件分支逻辑，可能需要多组测试数据"
+            )
+            source_context = "检测到条件分支"
+            expected_assertion = "result 不为 None（需手动补充分支预期）"
+        elif "[" in func_body and "]" in func_body and ("for " in func_body or "in " in func_body):
+            assertion_code = (
+                "    assert result is not None\n"
+                "    assert isinstance(result, (list, tuple))"
+            )
+            source_context = "检测到容器类型处理"
+            expected_assertion = "result 为列表/元组类型"
+
         code = (
             f"def test_{func.name}_normal():\n"
             f'    """正常场景：{func.name} 的基本功能验证"""\n'
+            f"{fixture_comment}"
             f"    from {file_path.stem} import {func.name}\n"
             f"    result = {func.name}({args_str})\n"
-            f"    assert result is not None\n"
-            f"    # TODO: 根据实际预期补充断言\n"
+            f"{assertion_code}\n"
         )
+        if "TODO" not in assertion_code:
+            code += f"    # TODO: 根据实际预期补充断言\n"
 
         return [TestCase(
             function_name=func.name,
@@ -207,23 +294,72 @@ class TestGenerator:
             code=code,
             expected_behavior=f"{func.name} 应返回预期结果，无异常抛出",
             test_framework=self.framework,
+            name=f"test_{func.name}_normal",
+            input_desc=f"参数: {args_str}",
+            expected_assertion=expected_assertion,
+            category="normal",
+            source_context=source_context,
         )]
 
-    def generate_boundary_cases(self, func: FunctionSignature) -> List[TestCase]:
+    def generate_boundary_cases(self, func: FunctionSignature,
+                                 file_path: Path) -> List[TestCase]:
         cases = []
         boundary_map = {
-            "int": [("0", "零值"), ("-1", "负值"), ("sys.maxsize", "最大整数")],
-            "float": [("0.0", "零值"), ("float('inf')", "正无穷")],
-            "str": [('""', "空字符串"), ('"a" * 10000', "超长字符串")],
-            "list": [("[]", "空列表")],
-            "dict": [("{}", "空字典")],
+            "int": [("0", "零值"), ("-1", "负值"), ("sys.maxsize", "最大整数"),
+                    ("float('nan')", "NaN"), ("float('inf')", "正无穷")],
+            "float": [("0.0", "零值"), ("float('inf')", "正无穷"),
+                      ("float('nan')", "NaN")],
+            "str": [('""', "空字符串"), ('"a" * 10000', "超长字符串"),
+                    ('"\\u00e9\\u00f1\\u00f1"', "Unicode字符串"),
+                    ('"!@#$%^&*()"', "特殊字符")],
+            "list": [("[]", "空列表"), ("[[[]]]", "深层嵌套列表")],
+            "dict": [("{}", "空字典"), ("{'a': {'b': {'c': 1}}}", "深层嵌套字典")],
+            "bool": [("True", "布尔True"), ("False", "布尔False")],
         }
 
         for name, type_hint in func.params:
             if name in ("self", "cls"):
                 continue
+
+            # Optional/Union 类型检测：添加 None 作为边界值
+            type_lower = type_hint.lower()
+            if re.search(r"optional\s*\[|union\[.*none", type_lower):
+                other_args = []
+                for on, ot in func.params:
+                    if on in ("self", "cls") or on == name:
+                        continue
+                    if "int" in ot.lower():
+                        other_args.append("42")
+                    elif "str" in ot.lower():
+                        other_args.append('"test"')
+                    elif "float" in ot.lower():
+                        other_args.append("3.14")
+                    else:
+                        other_args.append("None")
+                all_args = ", ".join(["None"] + other_args)
+                code = (
+                    f"def test_{func.name}_boundary_{name}_none():\n"
+                    f'    """边界场景：{func.name} 参数 {name}=None（Optional 类型）"""\n'
+                    f"    from {file_path.stem} import {func.name}\n"
+                    f"    result = {func.name}({all_args})\n"
+                    f"    assert True  # TODO: 补充具体断言\n"
+                )
+                cases.append(TestCase(
+                    function_name=func.name,
+                    case_type=TestCaseType.BOUNDARY,
+                    description=f"参数 {name} 为 None（Optional 类型）",
+                    code=code,
+                    expected_behavior="函数不应崩溃，应返回合理结果或抛出明确异常",
+                    test_framework=self.framework,
+                    name=f"test_{func.name}_boundary_{name}_none",
+                    input_desc=f"参数 {name}=None",
+                    expected_assertion="result is not None",
+                    category="boundary",
+                    source_context="Optional/Union 类型检测",
+                ))
+
             for type_key, values in boundary_map.items():
-                if type_key in type_hint.lower():
+                if type_key in type_lower:
                     for val, desc in values:
                         other_args = []
                         for on, ot in func.params:
@@ -241,7 +377,7 @@ class TestGenerator:
                         code = (
                             f"def test_{func.name}_boundary_{name}_{desc}():\n"
                             f'    """边界场景：{func.name} 参数 {name}={desc}"""\n'
-                            f"    from {func.name} import {func.name}\n"
+                            f"    from {file_path.stem} import {func.name}\n"
                             f"    result = {func.name}({all_args})\n"
                             f"    assert True  # TODO: 补充具体断言\n"
                         )
@@ -252,6 +388,11 @@ class TestGenerator:
                             code=code,
                             expected_behavior="函数不应崩溃，应返回合理结果或抛出明确异常",
                             test_framework=self.framework,
+                            name=f"test_{func.name}_boundary_{name}_{desc}",
+                            input_desc=f"参数 {name}={val}",
+                            expected_assertion="result is not None",
+                            category="boundary",
+                            source_context=f"类型 {type_key} 边界值检测",
                         ))
         return cases[:5]
 
@@ -430,7 +571,7 @@ class TestGenerator:
         for func in functions:
             tests = []
             tests.extend(self.generate_normal_cases(func, file_path))
-            tests.extend(self.generate_boundary_cases(func))
+            tests.extend(self.generate_boundary_cases(func, file_path))
             tests.extend(self._generate_exception_cases(func))
             all_tests[func.name] = tests
         return all_tests

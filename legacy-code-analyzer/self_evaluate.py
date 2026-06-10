@@ -111,7 +111,7 @@ print("\n╔══════════════════════�
 print("║  模块 4: 代码质量评估与缺陷检测              ║")
 print("╚══════════════════════════════════════════════╝")
 
-qe = QualityEvaluator(str(MODULES_DIR))
+qe = QualityEvaluator(str(SKILL_DIR))
 quality = qe.run_full_evaluation()
 
 print(f"\n📋 综合可维护性评分: {quality['overall_score']} / 10")
@@ -148,21 +148,14 @@ for d in quality["all_defects"]:
         "fix_suggestion": d.fix_suggestion,
     })
 
-# Clear any cached modules in dependency analyzer and point to modules dir
-da2 = DependencyAnalyzer(str(MODULES_DIR))
-from modules.risk_advisor import RiskAdvisor
-risk_advisor = RiskAdvisor(str(MODULES_DIR), dependency_analyzer=da2, quality_evaluator=qe)
-
-# Need to initialize da2 properly
-del da2  # Re-init properly
-
+# Initialize dependency analyzer and risk advisor for full skill directory
 import modules.dependency_analyzer as da_mod
-da_r = da_mod.DependencyAnalyzer(str(MODULES_DIR))
+da_r = da_mod.DependencyAnalyzer(str(SKILL_DIR))
 da_r.discover_modules()
 da_r.extract_explicit_dependencies()
 da_r.build_dependency_graph()
 
-risk_advisor_final = RiskAdvisor(str(MODULES_DIR), dependency_analyzer=da_r, quality_evaluator=qe)
+risk_advisor_final = RiskAdvisor(str(SKILL_DIR), dependency_analyzer=da_r, quality_evaluator=qe)
 risk_report = risk_advisor_final.generate_risk_report(defect_dicts, quality["module_reports"])
 
 print(f"\n⚠️ 风险统计")

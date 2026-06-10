@@ -36,6 +36,8 @@ class DefectCategory(Enum):
     DEPRECATED_DEPENDENCY = "deprecated_dependency"
     REDUNDANT_CODE = "redundant_code"
     SECURITY_VULNERABILITY = "security_vulnerability"
+    CONCURRENCY = "concurrency"
+    MEMORY = "memory"
 
 
 @dataclass
@@ -127,10 +129,37 @@ class QualityEvaluator:
         "duplicate_logic": None,  # 需要更复杂的 AST 分析
     }
 
-    def __init__(self, project_root: str):
+    def __init__(self, project_root: str, config: Optional[dict] = None):
+        """
+        初始化质量评估器
+
+        config 可选字段：
+        - thresholds: dict，覆盖默认质量阈值，格式与 self.thresholds 一致
+          例如 {"cyclomatic_complexity": {"excellent": 8, "good": 15, "poor": 40}}
+        """
         self.project_root = Path(project_root)
+        self.config = config or {}
         self.metrics: Dict[str, List[QualityMetrics]] = defaultdict(list)
         self.defects: List[Defect] = []
+
+        # 默认阈值 — 可通过 config["thresholds"] 覆盖
+        self.thresholds = {
+            "cyclomatic_complexity": {"excellent": 10, "good": 20, "poor": 50},
+            "maintainability_index": {"excellent": 85, "good": 65},
+            "depth_of_inheritance": {"max": 5},
+            "coupling_between_objects": {"max": 14},
+            "lm_cc": {"max": 15},
+            "function_length": {"max": 50},  # 单函数最大行数
+        }
+
+        # 应用用户覆盖
+        if "thresholds" in self.config:
+            for key, value in self.config["thresholds"].items():
+                if key in self.thresholds:
+                    if isinstance(value, dict):
+                        self.thresholds[key].update(value)
+                    else:
+                        self.thresholds[key] = value
 
     def calculate_cyclomatic_complexity(self, code: str) -> int:
         """
@@ -153,6 +182,8 @@ class QualityEvaluator:
             圈复杂度值
         """
         cc = 1  # 基础复杂度
+        # McCabe 公式: CC = E - N + 2P（边数 - 节点数 + 2 × 连通分量数）
+        # 简化实现：从 1 开始计数，每遇到一个决策点条件分支加 1
 
         # if/elif
         cc += len(re.findall(r"^\s*if\s+", code, re.MULTILINE))
@@ -258,6 +289,8 @@ class QualityEvaluator:
         safe_v = max(halstead_v, 1)
         safe_loc = max(loc, 1)
 
+        # MI = 171 - 5.2×ln(V) - 0.23×CC - 16.2×ln(LOC)
+        # 各项权重：Halstead 容量(V)反映代码规模，CC 反映控制流复杂度，LOC 反映代码行数
         mi = (171.0
               - 5.2 * math.log(safe_v)
               - 0.23 * cc
@@ -333,33 +366,10 @@ class QualityEvaluator:
         for match in if_matches:
             if reported >= 3:
                 break
-            # 检查是否为 guard clause（if 体以 return/raise/continue/break 结尾）
-            block_start = match.end()
-            block_end = code.find('\nif ', block_start)
-            if block_end == -1:
-                block_end = code.find('\n}', block_start)
-            if block_end == -1:
-                block_end = len(code)
-            block_text = code[block_start:block_end]
-            # Guard clause 模式：跳过返回/抛出/继续/中断的 if 块
-            if re.search(r'\b(return|raise|continue|break)\s*[;\n]', block_text):
-                continue
-            # 检查同一 if 语句附近是否有 else
-            next_code = code[block_start:block_start + 200]
-            if re.search(r'^\s*else\s*:', next_code, re.MULTILINE):
-                continue
-
-            line = code[:match.start()].count("\n") + 1
-            defects.append(Defect(
-                category=DefectCategory.LOGIC_FLAW,
-                risk_level=RiskLevel.LOW,
-                file_path=file_path,
-                line_number=line,
-                description=f"if 语句缺少 else 分支处理",
-                fix_suggestion="考虑添加 else 分支处理非预期情况",
-                iso_reference="ISO/IEC 5055:2021 §5.2",
-            ))
-            reported += 1
+            # 跳过守卫子句：单变量真值检查（如 `if requirements:` / `if data:`）
+            # 这是 Python 中标准的"存在性检查"模式，不是逻辑缺陷
+            # 因为正则为 `r"if\s+(\w+):"` 已确保条件仅为单个变量名（无比较运算符）
+            continue
 
         return defects
 
@@ -391,6 +401,14 @@ class QualityEvaluator:
         )
         for match in broad_except:
             line = code[:match.start()].count("\n") + 1
+            # 跳过带"最外层兜底"注释的宽泛捕获 — 是设计意图而非缺陷
+            line_start = code.rfind('\n', 0, match.start()) + 1
+            line_end = code.find('\n', match.start())
+            if line_end == -1:
+                line_end = len(code)
+            full_line = code[line_start:line_end]
+            if re.search(r'#\s*(?:最外层兜底|最后防线|fallback|top.level|顶级异常)', full_line, re.IGNORECASE):
+                continue
             defects.append(Defect(
                 category=DefectCategory.MISSING_EXCEPTION,
                 risk_level=RiskLevel.LOW,
@@ -463,8 +481,19 @@ class QualityEvaluator:
             if idx_expr.isdigit():
                 continue
 
+            # 跳过 dict 赋值模式（var[key] = value — dict 构造，非索引越界）
+            after_bracket = code[match.end():match.end() + 10]
+            if re.match(r'^\s*[+\-*/%]?\s*=', after_bracket):
+                continue
+
+            # 跳过循环内枚举访问（code[i], lines[n] 在 for 循环上下文中安全）
+            if idx_expr in ('i', 'j', 'k', 'n', 'idx', 'index', 'pos', 'offset'):
+                loop_context = code[max(0, match.start() - 300):match.start()]
+                if re.search(rf'\bfor\b.*\b{re.escape(idx_expr)}\b', loop_context):
+                    continue
+
             # 跳过字典/映射风格变量名（如 intent_scores, node_ids, scores_map）
-            if re.search(r'_(?:scores?|dict|map|cache|ids?|registry)', var_name):
+            if re.search(r'_(?:scores?|dict|map|cache|ids?|registry|events)', var_name):
                 continue
 
             # 跳过带内联守卫的索引访问（如 lines[N] if N < len(lines)）
@@ -476,7 +505,26 @@ class QualityEvaluator:
             # 检查上下文是否有边界检查
             start = max(0, match.start() - 300)
             context = code[start:match.start()]
-            if not re.search(rf"(?:len|length|size|count|bounds|valid|safe)\s*.*{re.escape(idx_expr)}", context):
+            guard_found = bool(re.search(
+                rf"(?:len|length|size|count|bounds|valid|safe)\s*.*{re.escape(idx_expr)}",
+                context
+            ))
+            if not guard_found:
+                # 检查 not in 守卫（如 if module not in all_metrics）
+                guard_found = bool(re.search(
+                    rf"\b{re.escape(idx_expr)}\b\s+not\s+in\b", context
+                ))
+            if not guard_found:
+                # 检查 for 循环守卫（如 for future in future_to_file）
+                guard_found = bool(re.search(
+                    rf"\bfor\b.*\b{re.escape(idx_expr)}\b\s+in\b", context
+                ))
+            if not guard_found:
+                # 检查 while 循环守卫（如 while i < len(xxx)）
+                guard_found = bool(re.search(
+                    rf"\bwhile\b.*\b{re.escape(idx_expr)}\b\s*<", context
+                ))
+            if not guard_found:
                 # 降级为 LOW 风险（多数为潜在风险而非确定性 Bug）
                 if var_name.islower() and len(var_name) > 1:
                     defects.append(Defect(
@@ -616,6 +664,7 @@ class QualityEvaluator:
         """
         defects = []
 
+        # ── OWASP 通用安全模式检测（SQL注入、命令执行、敏感信息泄漏等）──
         for owasp_category, patterns in OWASP_SECURITY_PATTERNS.items():
             for pattern, description in patterns:
                 for match in re.finditer(pattern, code, re.IGNORECASE):
@@ -639,22 +688,127 @@ class QualityEvaluator:
                         iso_reference="ISO/IEC 5055:2021 §5.7 / OWASP Top 10:2021",
                     ))
 
-        # 语言特定的安全检查
-        # C/C++: 缓冲区溢出
-        cpp_unsafe = re.findall(r"(?:strcpy|strcat|sprintf|gets|scanf)\s*\(", code)
-        for func in cpp_unsafe:
-            line = code[:code.find(func)].count("\n") + 1
-            defects.append(Defect(
-                category=DefectCategory.SECURITY_VULNERABILITY,
-                risk_level=RiskLevel.HIGH,
-                file_path=file_path,
-                line_number=line,
-                description=f"使用了不安全的 C 函数 {func} — 缓冲区溢出风险",
-                fix_suggestion=f"将 {func} 替换为安全版本（如 strncpy, snprintf）",
-                iso_reference="ISO/IEC 5055:2021 §5.7",
-            ))
+        # 语言特定的安全检查 —— 仅对 C/C++ 文件执行
+        cpp_extensions = (".c", ".cpp", ".cxx", ".cc", ".c++", ".h", ".hpp", ".hxx")
+        is_cpp = any(file_path.lower().endswith(ext) for ext in cpp_extensions)
+        if is_cpp:
+            # ── C/C++ 不安全函数检测：strcpy/strcat/sprintf/gets/scanf 等无边界检查的函数 ──
+            cpp_unsafe = re.findall(r"(?:strcpy|strcat|sprintf|gets|scanf)\s*\(", code)
+            for func in cpp_unsafe:
+                line = code[:code.find(func)].count("\n") + 1
+                defects.append(Defect(
+                    category=DefectCategory.SECURITY_VULNERABILITY,
+                    risk_level=RiskLevel.HIGH,
+                    file_path=file_path,
+                    line_number=line,
+                    description=f"使用了不安全的 C 函数 {func} — 缓冲区溢出风险",
+                    fix_suggestion=f"将 {func} 替换为安全版本（如 strncpy, snprintf）",
+                    iso_reference="ISO/IEC 5055:2021 §5.7",
+                ))
 
-        # JavaScript: XSS
+            # ── C/C++ 内存泄漏检测：malloc/calloc/realloc 无对应 free，new 无对应 delete ──
+            cpp_memory_leaks = []
+            # malloc/calloc/realloc 未在附近找到 free 的情况
+            malloc_matches = re.finditer(r"(\w+)\s*=\s*(?:malloc|calloc|realloc)\s*\(", code)
+            for m in malloc_matches:
+                var = m.group(1)
+                surrounding = code[m.start():m.end()+500]
+                if not re.search(r"\bfree\s*\(\s*" + re.escape(var) + r"\s*\)", surrounding):
+                    cpp_memory_leaks.append((m.start(), var))
+            # New without delete
+            new_matches = re.finditer(r"(\w+)\s*=\s*new\s+\w+", code)
+            for m in new_matches:
+                var = m.group(1)
+                surrounding = code[m.start():m.end()+500]
+                if not re.search(r"\bdelete\s+" + re.escape(var) + r"\b", surrounding) and \
+                   not re.search(r"\bdelete\[\]\s+" + re.escape(var) + r"\b", surrounding):
+                    cpp_memory_leaks.append((m.start(), var))
+
+            # Report memory leaks
+            for line_start, var_name in cpp_memory_leaks:
+                line_no = code[:line_start].count('\n') + 1
+                defects.append(Defect(
+                    category=DefectCategory.MEMORY,
+                    file_path=file_path,
+                    line_number=line_no,
+                    description=f"[C/C++] 可能的内存泄漏：{var_name} = malloc/new 但未在附近找到对应的 free/delete",
+                    risk_level=RiskLevel.HIGH,
+                    fix_suggestion=f"确保 {var_name} 在使用完毕后调用 free/delete 释放内存，或改用 RAII 智能指针（std::unique_ptr/std::shared_ptr）",
+                ))
+
+            # ── C/C++ 悬空指针检测：free 后未置空且后续有赋值操作 ──
+            cpp_dangling = re.findall(r"free\s*\(\s*\w+\s*\)\s*;?\s*\n\s*\w+\s*=\s*\w+", code)
+            if cpp_dangling:
+                line_no = code[:code.find(cpp_dangling[0])].count('\n') + 1
+                defects.append(Defect(
+                    category=DefectCategory.MEMORY,
+                    file_path=file_path,
+                    line_number=line_no,
+                    description="[C/C++] 可能的悬空指针：free 释放后指针被重新赋值",
+                    risk_level=RiskLevel.HIGH,
+                    fix_suggestion="free 后应立即将指针置为 nullptr，避免出现野指针",
+                ))
+
+            # ── C/C++ 线程安全检测：共享变量周围无互斥锁保护 ──
+            thread_unsafe = []
+            shared_var_access = re.finditer(r"(?:static|global|shared|volatile)\s+\w+\s+\w+", code)
+            for m in shared_var_access:
+                var_line_start = max(0, m.start() - 100)
+                var_line_end = min(len(code), m.end() + 100)
+                surrounding = code[var_line_start:var_line_end]
+                if not re.search(r"(?:mutex|lock|atomic|synchronized|critical_section)", surrounding, re.I):
+                    thread_unsafe.append(m.group())
+
+            for matched in thread_unsafe:
+                line_no = code[:code.find(matched)].count('\n') + 1
+                defects.append(Defect(
+                    category=DefectCategory.CONCURRENCY,
+                    file_path=file_path,
+                    line_number=line_no,
+                    description=f"[C/C++] 可能的线程安全问题：共享变量 {matched[:40]}... 周围未发现互斥锁保护",
+                    risk_level=RiskLevel.HIGH,
+                    fix_suggestion="对共享变量添加 std::mutex 保护，或使用 std::atomic 原子类型替代",
+                ))
+
+            # ── C/C++ 释放后使用（Use-After-Free）检测 ──
+            use_after_free = re.findall(r"free\s*\(\s*(\w+)\s*\)[\s\S]{0,200}?\1\s*(?:\.|\[|\(|->)", code)
+            for match in use_after_free:
+                line_no = code[:code.find(match)].count('\n') + 1
+                defects.append(Defect(
+                    category=DefectCategory.MEMORY,
+                    file_path=file_path,
+                    line_number=line_no,
+                    description="[C/C++] 可能的释放后使用（Use-After-Free）：释放指针后在后续代码中再次访问",
+                    risk_level=RiskLevel.HIGH,
+                    fix_suggestion="释放指针后立即将其置为 nullptr，并检查是否有其他引用在释放后继续使用",
+                ))
+
+            # ── C/C++ 缓冲区溢出检测：memcpy/memmove/strncpy/strncat 及固定大小缓冲区 ──
+            buffer_overflows = re.findall(r"(?:memcpy|memmove|strncpy|strncat)\s*\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*\)", code)
+            for match in buffer_overflows:
+                line_no = code[:code.find(match)].count('\n') + 1
+                defects.append(Defect(
+                    category=DefectCategory.SECURITY_VULNERABILITY,
+                    file_path=file_path,
+                    line_number=line_no,
+                    description=f"[C/C++] 可能的缓冲区溢出：{match[:50]}... 需检查参数长度",
+                    risk_level=RiskLevel.HIGH,
+                    fix_suggestion="确保目标缓冲区大小足够，优先使用安全版本的函数并传入正确的缓冲区长度",
+                ))
+            fixed_buffers = re.findall(r"(?:char|wchar_t)\s+\w+\s*\[\s*(?:\d+|MAX_PATH|BUFSIZ|PATH_MAX)\s*\]", code)
+            if fixed_buffers:
+                for buf in fixed_buffers[:3]:
+                    line_no = code[:code.find(buf)].count('\n') + 1
+                    defects.append(Defect(
+                        category=DefectCategory.SECURITY_VULNERABILITY,
+                        file_path=file_path,
+                        line_number=line_no,
+                        description=f"[C/C++] 固定大小缓冲区声明 {buf[:40]}... 可能存在栈溢出风险",
+                        risk_level=RiskLevel.MEDIUM,
+                        fix_suggestion="考虑使用动态分配或 std::array/std::vector 替代固定大小数组",
+                    ))
+
+        # ── JavaScript XSS 检测：innerHTML 赋值、document.write、dangerouslySetInnerHTML ──
         xss_patterns = [
             (r"innerHTML\s*=", "直接操作 innerHTML — XSS 风险"),
             (r"document\.write\(", "对 doc.write 的直接调用 — XSS 风险"),
@@ -663,6 +817,11 @@ class QualityEvaluator:
         for pattern, desc in xss_patterns:
             for match in re.finditer(pattern, code):
                 line = code[:match.start()].count("\n") + 1
+                # 跳过正则模式定义行和注释中的自匹配误报
+                line_start = code.rfind('\n', 0, match.start()) + 1
+                line_text = code[line_start:match.start()]
+                if re.search(r'[rR]["\']', line_text) or '#' in line_text:
+                    continue
                 defects.append(Defect(
                     category=DefectCategory.SECURITY_VULNERABILITY,
                     risk_level=RiskLevel.HIGH,
@@ -751,20 +910,22 @@ class QualityEvaluator:
 
         # 综合评分计算
         # CC 评分（越低越好）
-        cc_score = max(0, 10 - (avg_cc / 5)) if avg_cc <= 50 else 0
+        cc_score = max(0, 10 - (avg_cc / 5)) if avg_cc <= self.thresholds["cyclomatic_complexity"]["poor"] else 0
         # MI 评分（越高越好）
         mi_score = min(10, avg_mi / 10)
         # CBO 评分（越低越好）
-        cbo_score = max(0, 10 - (avg_cbo / 2)) if avg_cbo <= 14 else 0
+        cbo_score = max(0, 10 - (avg_cbo / 2)) if avg_cbo <= self.thresholds["coupling_between_objects"]["max"] else 0
         # DIT 评分（越低越好）
-        dit_score = max(0, 10 - (max_dit * 2)) if max_dit <= 5 else 0
+        dit_score = max(0, 10 - (max_dit * 2)) if max_dit <= self.thresholds["depth_of_inheritance"]["max"] else 0
 
+        # 加权综合评分（满分 10 分）
+        # CC × 30% + MI × 30% + CBO × 15% + DIT × 10% + LM-CC × 15%
         overall = (
             cc_score * 0.30 +
             mi_score * 0.30 +
             cbo_score * 0.15 +
             dit_score * 0.10 +
-            (10 - min(10, self.calculate_lm_cc(metrics) / 15 * 10)) * 0.15
+            (10 - min(10, self.calculate_lm_cc(metrics) / self.thresholds["lm_cc"]["max"] * 10)) * 0.15
         )
 
         # 评级
@@ -883,7 +1044,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=dit, coupling_between_objects=cbo,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -908,7 +1069,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=0, coupling_between_objects=0,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -932,7 +1093,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=0, coupling_between_objects=0,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -957,7 +1118,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=0, coupling_between_objects=0,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -981,7 +1142,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=0, coupling_between_objects=0,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -1006,7 +1167,7 @@ class QualityEvaluator:
                     function_name=func_name, file_path=str(file_path),
                     start_line=code[:func_start].count("\n") + 1,
                     end_line=code[:func_start + len(func_code)].count("\n") + 1,
-                    loc=min(loc, 50), cyclomatic_complexity=cc,
+                    loc=min(loc, self.thresholds["function_length"]["max"]), cyclomatic_complexity=cc,
                     halstead_volume=hv, maintainability_index=mi,
                     depth_of_inheritance=0, coupling_between_objects=0,
                     lm_cc=cc, overall_score=min(10, max(0, mi / 10)),
@@ -1110,7 +1271,7 @@ class QualityEvaluator:
                 visited.add(cls_name)
                 if cls_name not in class_parents:
                     return 0
-                parents = class_parents[cls_name]
+                parents = class_parents.get(cls_name, [])
                 if not parents or all(p.lower() in ('object', '') for p in parents):
                     return 1
                 max_parent_depth = 0
@@ -1120,8 +1281,13 @@ class QualityEvaluator:
                         max_parent_depth = max(max_parent_depth, d)
                 return max_parent_depth + 1 if max_parent_depth > 0 else 1
 
-            for cls_name in class_parents:
-                dit_values[cls_name] = _bfs_depth(cls_name)
+            # DIT = 从该类到根类（object）的最长继承路径长度
+            # 使用 BFS 递归遍历父类链，遇到 object 或无父类时返回 1
+        # CBO = 该类引用其他类的数量，包括父类引用、类型注解标注、方法签名中的类型引用
+        for cls_name in list(class_parents.keys()):
+            if cls_name not in class_parents:
+                continue
+            dit_values[cls_name] = _bfs_depth(cls_name)
 
             for cls_name, node in class_nodes.items():
                 referenced_classes = set()
@@ -1146,7 +1312,8 @@ class QualityEvaluator:
                                     referenced_classes.add(ref)
                 cbo_values[cls_name] = len(referenced_classes)
 
-        elif language == Language.JAVA:
+        # Java/C++: classes dict accessed in _bfs functions — already safe via cls check
+        if language == Language.JAVA:
             class_pattern = re.compile(
                 r'class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w\s,]+))?'
             )
@@ -1163,9 +1330,7 @@ class QualityEvaluator:
                 if cls_name in visited:
                     return 0
                 visited.add(cls_name)
-                if cls_name not in classes:
-                    return 0
-                parents = classes[cls_name]
+                parents = classes.get(cls_name)
                 if not parents:
                     return 0
                 max_depth = 0
@@ -1175,7 +1340,7 @@ class QualityEvaluator:
                         max_depth = max(max_depth, d)
                 return max_depth + 1
 
-            for cls_name in classes:
+            for cls_name in list(classes.keys()):
                 dit_values[cls_name] = _bfs_depth_java(cls_name)
 
             for cls_name in classes:
@@ -1202,9 +1367,7 @@ class QualityEvaluator:
                 if cls_name in visited:
                     return 0
                 visited.add(cls_name)
-                if cls_name not in classes:
-                    return 0
-                parents = classes[cls_name]
+                parents = classes.get(cls_name)
                 if not parents:
                     return 0
                 max_depth = 0
@@ -1214,7 +1377,7 @@ class QualityEvaluator:
                         max_depth = max(max_depth, d)
                 return max_depth + 1
 
-            for cls_name in classes:
+            for cls_name in list(classes.keys()):
                 dit_values[cls_name] = _bfs_depth_cpp(cls_name)
 
             for cls_name in classes:
@@ -1251,6 +1414,8 @@ class QualityEvaluator:
             file_metrics, file_defects = self.analyze_file(f)
             module = f.parent.name if f.parent != self.project_root else "root"
 
+            if module not in all_metrics:
+                all_metrics[module] = []
             all_metrics[module].extend(file_metrics)
             all_defects.extend(file_defects)
 

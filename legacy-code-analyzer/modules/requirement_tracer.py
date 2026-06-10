@@ -242,13 +242,16 @@ class RequirementParser:
         # 合并相邻英文词为短语
         phrases = []
         i = 0
-        while i < len(keywords):
-            if re.match(r"[a-z]", keywords[i]) and i + 1 < len(keywords):
-                if re.match(r"[a-z]", keywords[i + 1]):
-                    phrases.append(f"{keywords[i]}_{keywords[i+1]}")
+        kw_len = len(keywords)
+        while i < kw_len:
+            kw = keywords[i]
+            if re.match(r"[a-z]", kw) and i + 1 < kw_len:
+                nxt = keywords[i + 1]
+                if re.match(r"[a-z]", nxt):
+                    phrases.append(f"{kw}_{nxt}")
                     i += 2
                     continue
-            phrases.append(keywords[i])
+            phrases.append(kw)
             i += 1
 
         # 中文分词处理
